@@ -20,8 +20,34 @@
     .badge.Pending { background-color: #fff3cd; color: #856404; }
     .badge.Approved { background-color: #d4edda; color: #155724; }
     .nav-btn { display: inline-block; margin-bottom: 15px; text-decoration: none; color: #007bff; font-weight: 600; }
-
-    /* Style untuk Tombol Hapus */
+    
+    /* Toolbar Filter & Controls */
+    .table-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+    .filter-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    .filter-group input {
+      padding: 8px 12px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 0.88rem;
+      outline: none;
+    }
+    .filter-group input:focus {
+      border-color: #007bff;
+    }
+    
+    /* Style Tombol Hapus */
     .btn-delete {
       background-color: #dc3545;
       color: white;
@@ -33,8 +59,27 @@
       font-weight: 600;
       transition: background-color 0.2s;
     }
-    .btn-delete:hover {
-      background-color: #bd2130;
+    .btn-delete:hover { background-color: #bd2130; }
+    
+    /* Tombol Hapus Terpilih */
+    .btn-delete-selected {
+      background-color: #d9534f;
+      color: white;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.88rem;
+      font-weight: 600;
+      display: none; /* Muncul jika ada centang */
+    }
+    .btn-delete-selected:hover { background-color: #c9302c; }
+
+    /* Checkbox Alignment */
+    input[type="checkbox"] {
+      width: 17px;
+      height: 17px;
+      cursor: pointer;
     }
   </style>
 </head>
@@ -71,9 +116,23 @@
 
   <div class="card">
     <h3>Riwayat Transaksi Pengajuan</h3>
+
+    <!-- Toolbar Filter, Search & Bulk Delete -->
+    <div class="table-toolbar" style="margin-top: 15px;">
+      <div class="filter-group">
+        <input type="text" id="searchInput" placeholder="🔍 Cari Ticket/Customer/Transporter..." style="width: 250px;">
+        <label style="font-size: 0.85rem; font-weight:600; color:#555;">Dari:</label>
+        <input type="date" id="startDate">
+        <label style="font-size: 0.85rem; font-weight:600; color:#555;">Sampai:</label>
+        <input type="date" id="endDate">
+      </div>
+      <button id="btnDeleteSelected" class="btn-delete-selected" onclick="deleteSelectedData()">🗑️ Hapus Terpilih (<span id="selectedCount">0</span>)</button>
+    </div>
+
     <table>
       <thead>
         <tr>
+          <th style="width: 40px; text-align: center;"><input type="checkbox" id="selectAll" onclick="toggleSelectAll(this)"></th>
           <th>Tanggal</th>
           <th>Ticket</th>
           <th>Customer</th>
@@ -107,8 +166,9 @@
   const db = getFirestore(app);
 
   let chartInstance = null;
+  let rawDataList = []; // Menyimpan semua data dari Firebase
 
-  // Fungsi untuk Hapus Data dari Firestore
+  // 1. Hapus Single Data
   window.deleteData = async function(docId, ticket) {
     if (confirm(`Apakah Anda yakin ingin menghapus transaksi Ticket #${ticket}?`)) {
       try {
@@ -121,32 +181,98 @@
     }
   };
 
-  onSnapshot(collection(db, "uang_bongkar"), (snapshot) => {
-    let listData = [];
-    let totalsPerTransporter = {};
-    let grandTotal = 0;
+  // 2. Multiple Checkbox Helpers
+  window.toggleSelectAll = function(master) {
+    const checkboxes = document.querySelectorAll('.row-checkbox');
+    checkboxes.forEach(cb => cb.checked = master.checked);
+    updateBulkDeleteButton();
+  };
 
+  window.updateBulkDeleteButton = function() {
+    const checkedBoxes = document.querySelectorAll('.row-checkbox:checked');
+    const btn = document.getElementById('btnDeleteSelected');
+    const countSpan = document.getElementById('selectedCount');
+    
+    countSpan.innerText = checkedBoxes.length;
+    if (checkedBoxes.length > 0) {
+      btn.style.display = 'inline-block';
+    } else {
+      btn.style.display = 'none';
+      document.getElementById('selectAll').checked = false;
+    }
+  };
+
+  // 3. Bulk Delete
+  window.deleteSelectedData = async function() {
+    const checkedBoxes = document.querySelectorAll('.row-checkbox:checked');
+    const count = checkedBoxes.length;
+
+    if (count === 0) return;
+
+    if (confirm(`Apakah Anda yakin ingin menghapus ${count} data terpilih sekaligus?`)) {
+      try {
+        for (const cb of checkedBoxes) {
+          const docId = cb.value;
+          await deleteDoc(doc(db, "uang_bongkar", docId));
+        }
+        alert(`${count} data berhasil dihapus!`);
+        document.getElementById('selectAll').checked = false;
+        updateBulkDeleteButton();
+      } catch (error) {
+        console.error("Gagal menghapus data masal:", error);
+        alert("Gagal menghapus beberapa data: " + error.message);
+      }
+    }
+  };
+
+  // Listener Real-time Firebase
+  onSnapshot(collection(db, "uang_bongkar"), (snapshot) => {
+    rawDataList = [];
     snapshot.forEach((docSnapshot) => {
       const data = docSnapshot.data();
-      // Mengambil ID unik dokumen agar bisa dihapus[cite: 5]
-      listData.push({ id: docSnapshot.id, ...data });
-
-      const biaya = parseFloat(data.biaya) || 0;
-      grandTotal += biaya;
-
-      if (!totalsPerTransporter[data.transporter]) {
-        totalsPerTransporter[data.transporter] = 0;
-      }
-      totalsPerTransporter[data.transporter] += biaya;
+      rawDataList.push({ id: docSnapshot.id, ...data });
     });
 
+    renderAll();
+  });
+
+  // Render & Filter Logic
+  function renderAll() {
+    const searchVal = document.getElementById('searchInput').value.toLowerCase().trim();
+    const startDateVal = document.getElementById('startDate').value;
+    const endDateVal = document.getElementById('endDate').value;
+
+    // Filter Data
+    const filteredData = rawDataList.filter(item => {
+      // Filter Search Box
+      const matchesSearch = !searchVal || 
+        (item.noTicket && item.noTicket.toLowerCase().includes(searchVal)) ||
+        (item.customer && item.customer.toLowerCase().includes(searchVal)) ||
+        (item.transporter && item.transporter.toLowerCase().includes(searchVal));
+
+      // Filter Date Range
+      let matchesDate = true;
+      if (startDateVal) {
+        matchesDate = matchesDate && (item.tanggal >= startDateVal);
+      }
+      if (endDateVal) {
+        matchesDate = matchesDate && (item.tanggal <= endDateVal);
+      }
+
+      return matchesSearch && matchesDate;
+    });
+
+    // Render Tabel Utama
     const dataTable = document.getElementById('dataTable');
-    dataTable.innerHTML = listData.map(d => `
+    dataTable.innerHTML = filteredData.map(d => `
       <tr>
-        <td>${d.tanggal}</td>
-        <td>${d.noTicket}</td>
-        <td>${d.customer}</td>
-        <td>${d.transporter}</td>
+        <td style="text-align: center;">
+          <input type="checkbox" class="row-checkbox" value="${d.id}" onclick="updateBulkDeleteButton()">
+        </td>
+        <td>${d.tanggal || '-'}</td>
+        <td>${d.noTicket || '-'}</td>
+        <td>${d.customer || '-'}</td>
+        <td>${d.transporter || '-'}</td>
         <td>Rp ${d.biaya ? Number(d.biaya).toLocaleString('id-ID') : 0}</td>
         <td><span class="badge ${d.status}">${d.status}</span></td>
         <td>
@@ -154,6 +280,20 @@
         </td>
       </tr>
     `).join('');
+
+    // Hitung Ulang Summary & Chart berdasarkan Data Terfilter
+    let totalsPerTransporter = {};
+    let grandTotal = 0;
+
+    filteredData.forEach(d => {
+      const biaya = parseFloat(d.biaya) || 0;
+      grandTotal += biaya;
+
+      if (!totalsPerTransporter[d.transporter]) {
+        totalsPerTransporter[d.transporter] = 0;
+      }
+      totalsPerTransporter[d.transporter] += biaya;
+    });
 
     const summaryTable = document.getElementById('summaryTable').querySelector('tbody');
     summaryTable.innerHTML = '';
@@ -177,8 +317,10 @@
     }
 
     renderChart(labels, chartData);
-  });
+    updateBulkDeleteButton();
+  }
 
+  // Render Chart Pie
   function renderChart(labels, data) {
     const ctx = document.getElementById('percentageChart').getContext('2d');
     
@@ -201,6 +343,11 @@
       }
     });
   }
+
+  // Event Listeners untuk Filter Real-time
+  document.getElementById('searchInput').addEventListener('input', renderAll);
+  document.getElementById('startDate').addEventListener('change', renderAll);
+  document.getElementById('endDate').addEventListener('change', renderAll);
 </script>
 
 </body>
