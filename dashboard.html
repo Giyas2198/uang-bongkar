@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard Approval Uang Bongkar</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    body { background-color: #f4f7f6; padding: 20px; }
+    .container { max-width: 1100px; margin: 0 auto; }
+    h1 { margin-bottom: 20px; color: #333; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px; }
+    @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+    .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+    th { background-color: #f8f9fa; color: #555; }
+    .badge { padding: 4px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: bold; }
+    .badge.Pending { background-color: #fff3cd; color: #856404; }
+    .badge.Approved { background-color: #d4edda; color: #155724; }
+    .nav-btn { display: inline-block; margin-bottom: 15px; text-decoration: none; color: #007bff; font-weight: 600; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <a href="index.html" class="nav-btn">← Kembali ke Form Input</a>
+  <h1>Dashboard Uang Bongkar</h1>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Total Biaya per Transporter</h3>
+      <table id="summaryTable">
+        <thead>
+          <tr>
+            <th>Transporter</th>
+            <th>Total Biaya</th>
+            <th>Persentase</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Diisi via JS -->
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card" style="display:flex; flex-direction:column; align-items:center;">
+      <h3>Persentase Biaya Bongkar</h3>
+      <div style="width: 280px; height: 280px;">
+        <canvas id="percentageChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Riwayat Transaksi Pengajuan</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Tanggal</th>
+          <th>Ticket</th>
+          <th>Customer</th>
+          <th>Transporter</th>
+          <th>Biaya</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="dataTable">
+        <!-- Diisi via JS -->
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+  import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDbJPyGVKR7D3ezqBYW-fwgYXvaBbCvbrY",
+    authDomain: "logistics-track-fc336.firebaseapp.com",
+    projectId: "logistics-track-fc336",
+    storageBucket: "logistics-track-fc336.firebasestorage.app",
+    messagingSenderId: "782653060704",
+    appId: "1:782653060704:web:11f63ebebeddb7e6d0f505"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  let chartInstance = null;
+
+  onSnapshot(collection(db, "uang_bongkar"), (snapshot) => {
+    let listData = [];
+    let totalsPerTransporter = {};
+    let grandTotal = 0;
+
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      listData.push(data);
+
+      const biaya = parseFloat(data.biaya) || 0;
+      grandTotal += biaya;
+
+      if (!totalsPerTransporter[data.transporter]) {
+        totalsPerTransporter[data.transporter] = 0;
+      }
+      totalsPerTransporter[data.transporter] += biaya;
+    });
+
+    const dataTable = document.getElementById('dataTable');
+    dataTable.innerHTML = listData.map(d => `
+      <tr>
+        <td>${d.tanggal}</td>
+        <td>${d.noTicket}</td>
+        <td>${d.customer}</td>
+        <td>${d.transporter}</td>
+        <td>Rp ${d.biaya ? d.biaya.toLocaleString('id-ID') : 0}</td>
+        <td><span class="badge ${d.status}">${d.status}</span></td>
+      </tr>
+    `).join('');
+
+    const summaryTable = document.getElementById('summaryTable').querySelector('tbody');
+    summaryTable.innerHTML = '';
+
+    const labels = [];
+    const chartData = [];
+
+    for (const [transporter, total] of Object.entries(totalsPerTransporter)) {
+      const percentage = grandTotal > 0 ? ((total / grandTotal) * 100).toFixed(1) : 0;
+      
+      labels.push(transporter);
+      chartData.push(total);
+
+      summaryTable.innerHTML += `
+        <tr>
+          <td><b>${transporter}</b></td>
+          <td>Rp ${total.toLocaleString('id-ID')}</td>
+          <td><b>${percentage}%</b></td>
+        </tr>
+      `;
+    }
+
+    renderChart(labels, chartData);
+  });
+
+  function renderChart(labels, data) {
+    const ctx = document.getElementById('percentageChart').getContext('2d');
+    
+    if (chartInstance) {
+      chartInstance.destroy();
+    }
+
+    chartInstance = new Chart(ctx, {
+      type: 'pie',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: data,
+          backgroundColor: ['#007bff', '#28a745', '#ffc107', '#dc3545', '#17a2b8', '#6c757d']
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false
+      }
+    });
+  }
+</script>
+
+</body>
+</html>

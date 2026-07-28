@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pengajuan Uang Bongkar</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    body { background-color: #f4f7f6; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+    .card { background: #ffffff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); width: 100%; max-width: 500px; }
+    h2 { margin-bottom: 20px; color: #333; text-align: center; }
+    .form-group { margin-bottom: 16px; }
+    label { display: block; margin-bottom: 6px; font-weight: 600; color: #555; font-size: 0.9rem; }
+    input, select { width: 100%; padding: 10px 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.95rem; outline: none; }
+    input:focus, select:focus { border-color: #007bff; }
+    .hidden { display: none; }
+    button { width: 100%; padding: 12px; background-color: #007bff; color: white; border: none; border-radius: 6px; font-size: 1rem; font-weight: bold; cursor: pointer; margin-top: 10px; }
+    button:hover { background-color: #0056b3; }
+    button:disabled { background-color: #aaa; cursor: not-allowed; }
+    #statusMessage { margin-top: 15px; padding: 10px; border-radius: 6px; text-align: center; font-size: 0.9rem; }
+    .success { background-color: #d4edda; color: #155724; }
+    .error { background-color: #f8d7da; color: #721c24; }
+    .nav-btn { display: block; text-align: center; margin-top: 15px; text-decoration: none; color: #007bff; font-weight: 600; font-size: 0.9rem; }
+  </style>
+  
+  <!-- Firebase SDK (Version 9+) -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    // KONEKSI FIREBASE LOGISTICS TRACK
+    const firebaseConfig = {
+      apiKey: "AIzaSyDbJPyGVKR7D3ezqBYW-fwgYXvaBbCvbrY",
+      authDomain: "logistics-track-fc336.firebaseapp.com",
+      projectId: "logistics-track-fc336",
+      storageBucket: "logistics-track-fc336.firebasestorage.app",
+      messagingSenderId: "782653060704",
+      appId: "1:782653060704:web:11f63ebebeddb7e6d0f505"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // URL GOOGLE APPS SCRIPT
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxNRWMCkKQef1JiGLzdHH7XYsRc_5fcWQtyT6764bsauTNaovmpDE852kZbWrhjSJQ_Yg/exec";
+
+    window.toggleCustomTransporter = function(selectObj) {
+      const customGroup = document.getElementById('customTransporterGroup');
+      const customInput = document.getElementById('customTransporter');
+      if (selectObj.value === 'Lainnya') {
+        customGroup.classList.remove('hidden');
+        customInput.required = true;
+      } else {
+        customGroup.classList.add('hidden');
+        customInput.required = false;
+      }
+    };
+
+    document.getElementById('approvalForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+
+      const submitBtn = document.getElementById('submitBtn');
+      const statusMsg = document.getElementById('statusMessage');
+
+      let transporterValue = document.getElementById('transporter').value;
+      if (transporterValue === 'Lainnya') {
+        transporterValue = document.getElementById('customTransporter').value;
+      }
+
+      const payload = {
+        tanggal: document.getElementById('tanggal').value,
+        noTicket: document.getElementById('noTicket').value,
+        customer: document.getElementById('customer').value,
+        biaya: parseFloat(document.getElementById('biaya').value),
+        transporter: transporterValue,
+        managerEmail: document.getElementById('managerEmail').value,
+        status: 'Pending',
+        createdAt: new Date().toISOString()
+      };
+
+      submitBtn.disabled = true;
+      submitBtn.innerText = "Saving & Sending...";
+      statusMsg.className = "hidden";
+
+      try {
+        // 1. Simpan Data Awal ke Firestore
+        const docRef = await addDoc(collection(db, "uang_bongkar"), payload);
+        console.log("Tersimpan di Firebase dengan ID:", docRef.id);
+        
+        // 2. Kirim Email via Google Apps Script (menggunakan mode no-cors)
+        const emailPayload = { ...payload, docId: docRef.id };
+        
+        await fetch(SCRIPT_URL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(emailPayload)
+        });
+
+        statusMsg.innerText = "Data tersimpan di Firebase & Email berhasil dikirim!";
+        statusMsg.className = "success";
+        document.getElementById('approvalForm').reset();
+      } catch (err) {
+        console.error(err);
+        statusMsg.innerText = "Error: " + err.message;
+        statusMsg.className = "error";
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerText = "Kirim Approval Email";
+      }
+    });
+  </script>
+</head>
+<body>
+
+<div class="card">
+  <h2>Form Uang Bongkar</h2>
+  <form id="approvalForm">
+    <div class="form-group">
+      <label for="tanggal">Tanggal Pengiriman</label>
+      <input type="date" id="tanggal" required>
+    </div>
+
+    <div class="form-group">
+      <label for="noTicket">Nomor Delivery Ticket</label>
+      <input type="text" id="noTicket" placeholder="Contoh: DT-10023" required>
+    </div>
+
+    <div class="form-group">
+      <label for="customer">Customer / Toko</label>
+      <input type="text" id="customer" placeholder="Nama Toko / Customer" required>
+    </div>
+
+    <div class="form-group">
+      <label for="biaya">Biaya Bongkar (Rp)</label>
+      <input type="number" id="biaya" placeholder="150000" min="0" required>
+    </div>
+
+    <div class="form-group">
+      <label for="transporter">Transporter</label>
+      <select id="transporter" onchange="toggleCustomTransporter(this)" required>
+        <option value="">-- Pilih Transporter --</option>
+        <option value="Maersk">Maersk</option>
+        <option value="Humala">Humala</option>
+        <option value="Respex">Respex</option>
+        <option value="Wira">Wira</option>
+        <option value="Matio">Matio</option>
+        <option value="Lainnya">Lainnya (Input Manual)</option>
+      </select>
+    </div>
+
+    <div class="form-group hidden" id="customTransporterGroup">
+      <label for="customTransporter">Nama Transporter Lainnya</label>
+      <input type="text" id="customTransporter" placeholder="Masukkan nama transporter">
+    </div>
+
+    <div class="form-group">
+      <label for="managerEmail">Email CS / Sales Manager</label>
+      <input type="email" id="managerEmail" placeholder="manager@perusahaan.com" required>
+    </div>
+
+    <button type="submit" id="submitBtn">Kirim Approval Email</button>
+  </form>
+
+  <div id="statusMessage" class="hidden"></div>
+  <a href="dashboard.html" class="nav-btn">📊 Lihat Dashboard & Persentase Biaya →</a>
+</div>
+
+</body>
+</html>
