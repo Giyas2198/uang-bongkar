@@ -20,6 +20,22 @@
     .badge.Pending { background-color: #fff3cd; color: #856404; }
     .badge.Approved { background-color: #d4edda; color: #155724; }
     .nav-btn { display: inline-block; margin-bottom: 15px; text-decoration: none; color: #007bff; font-weight: 600; }
+
+    /* Style untuk Tombol Hapus */
+    .btn-delete {
+      background-color: #dc3545;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: 600;
+      transition: background-color 0.2s;
+    }
+    .btn-delete:hover {
+      background-color: #bd2130;
+    }
   </style>
 </head>
 <body>
@@ -64,6 +80,7 @@
           <th>Transporter</th>
           <th>Biaya</th>
           <th>Status</th>
+          <th>Aksi</th>
         </tr>
       </thead>
       <tbody id="dataTable">
@@ -75,7 +92,7 @@
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-  import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+  import { getFirestore, collection, onSnapshot, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyDbJPyGVKR7D3ezqBYW-fwgYXvaBbCvbrY",
@@ -91,14 +108,28 @@
 
   let chartInstance = null;
 
+  // Fungsi untuk Hapus Data dari Firestore
+  window.deleteData = async function(docId, ticket) {
+    if (confirm(`Apakah Anda yakin ingin menghapus transaksi Ticket #${ticket}?`)) {
+      try {
+        await deleteDoc(doc(db, "uang_bongkar", docId));
+        alert("Data berhasil dihapus!");
+      } catch (error) {
+        console.error("Gagal menghapus data:", error);
+        alert("Gagal menghapus data: " + error.message);
+      }
+    }
+  };
+
   onSnapshot(collection(db, "uang_bongkar"), (snapshot) => {
     let listData = [];
     let totalsPerTransporter = {};
     let grandTotal = 0;
 
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      listData.push(data);
+    snapshot.forEach((docSnapshot) => {
+      const data = docSnapshot.data();
+      // Mengambil ID unik dokumen agar bisa dihapus[cite: 5]
+      listData.push({ id: docSnapshot.id, ...data });
 
       const biaya = parseFloat(data.biaya) || 0;
       grandTotal += biaya;
@@ -116,8 +147,11 @@
         <td>${d.noTicket}</td>
         <td>${d.customer}</td>
         <td>${d.transporter}</td>
-        <td>Rp ${d.biaya ? d.biaya.toLocaleString('id-ID') : 0}</td>
+        <td>Rp ${d.biaya ? Number(d.biaya).toLocaleString('id-ID') : 0}</td>
         <td><span class="badge ${d.status}">${d.status}</span></td>
+        <td>
+          <button class="btn-delete" onclick="deleteData('${d.id}', '${d.noTicket}')">Hapus</button>
+        </td>
       </tr>
     `).join('');
 
