@@ -44,6 +44,16 @@
     // URL GOOGLE APPS SCRIPT
     const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbweybF42nxNwsK6pofbQnppBHVFtarTwEgP2OiUjzxYLFAcMWuzH-leHY11rAs5AhXqbQ/exec";
 
+    // Convert gambar ke String Base64
+    function convertBase64(file) {
+      return new Promise((resolve, reject) => {
+        const fileReader = new FileReader();
+        fileReader.readAsDataURL(file);
+        fileReader.onload = () => resolve(fileReader.result);
+        fileReader.onerror = (error) => reject(error);
+      });
+    }
+
     window.toggleCustomTransporter = function(selectObj) {
       const customGroup = document.getElementById('customTransporterGroup');
       const customInput = document.getElementById('customTransporter');
@@ -67,6 +77,13 @@
         transporterValue = document.getElementById('customTransporter').value;
       }
 
+      // Proses file bukti foto
+      const fileInput = document.getElementById('evidence').files[0];
+      let evidenceBase64 = "";
+      if (fileInput) {
+        evidenceBase64 = await convertBase64(fileInput);
+      }
+
       const payload = {
         tanggal: document.getElementById('tanggal').value,
         noTicket: document.getElementById('noTicket').value,
@@ -74,6 +91,7 @@
         biaya: parseFloat(document.getElementById('biaya').value),
         transporter: transporterValue,
         managerEmail: document.getElementById('managerEmail').value,
+        evidence: evidenceBase64, // Menyimpan bukti foto
         status: 'Pending',
         createdAt: new Date().toISOString()
       };
@@ -87,8 +105,17 @@
         const docRef = await addDoc(collection(db, "uang_bongkar"), payload);
         console.log("Tersimpan di Firebase dengan ID:", docRef.id);
         
-        // 2. Kirim Email via Google Apps Script (menggunakan mode no-cors)
-        const emailPayload = { ...payload, docId: docRef.id };
+        // 2. Kirim Email via Google Apps Script (tanpa menyertakan teks Base64 foto yang terlalu panjang agar email tidak error)
+        const emailPayload = { 
+          tanggal: payload.tanggal,
+          noTicket: payload.noTicket,
+          customer: payload.customer,
+          biaya: payload.biaya,
+          transporter: payload.transporter,
+          managerEmail: payload.managerEmail,
+          status: payload.status,
+          docId: docRef.id 
+        };
         
         await fetch(SCRIPT_URL, {
           method: 'POST',
@@ -99,9 +126,10 @@
           body: JSON.stringify(emailPayload)
         });
 
-        statusMsg.innerText = "Data tersimpan di Firebase & Email berhasil dikirim!";
+        statusMsg.innerText = "Data & Foto tersimpan di Firebase! Email berhasil dikirim.";
         statusMsg.className = "success";
         document.getElementById('approvalForm').reset();
+        document.getElementById('customTransporterGroup').classList.add('hidden');
       } catch (err) {
         console.error(err);
         statusMsg.innerText = "Error: " + err.message;
@@ -154,6 +182,12 @@
     <div class="form-group hidden" id="customTransporterGroup">
       <label for="customTransporter">Nama Transporter Lainnya</label>
       <input type="text" id="customTransporter" placeholder="Masukkan nama transporter">
+    </div>
+
+    <!-- FIELD BARU UNTUK BUKTI FOTO -->
+    <div class="form-group">
+      <label for="evidence">Upload Bukti Foto / Evidence (Chat / Penagihan / Lokasi)</label>
+      <input type="file" id="evidence" accept="image/*" required>
     </div>
 
     <div class="form-group">
